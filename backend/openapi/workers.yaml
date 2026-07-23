@@ -1,0 +1,547 @@
+openapi: "3.1.0"
+info:
+  title: 노무비 관리 시스템 API — 근로자/단가/현장
+  version: "1.0.0"
+  description: >
+    기획서 12번 개발순서 2단계(근로자 마스터) 범위의 계약.
+    인증(로그인/OTP)·출역·계산/제출·대시보드 도메인은 다음 단계에서 별도 스펙으로 추가한다.
+    모든 엔드포인트는 관리자 Bearer JWT 인증이 이미 적용된 상태를 가정한다(로그인 발급 로직 자체는 이 스펙의 범위 밖).
+  license:
+    name: Proprietary
+    identifier: "UNLICENSED"
+servers:
+  - url: /api
+    description: >
+      1인 개발 내부 도구, 클라이언트는 프론트엔드 1개뿐이라 URL 버저닝(/api/v1) 없이 시작.
+      breaking change 발생 시 이 시점에 /api/v2 분기 예정(versioning.md 참고).
+
+tags:
+  - name: Workers
+    description: 근로자 등록·조회·수정, 현장 이동 이력
+  - name: WorkerFiles
+    description: 신분증/통장 사본 업로드 및 다운로드
+  - name: WorkerRates
+    description: 근로자 일 단가 등록·이력·종료
+  - name: Sites
+    description: 현장(프로젝트) 목록 및 등록
+
+security:
+  - BearerAuth: []
+
+paths:
+  /workers:
+    get:
+      summary: 근로자 목록 조회 (전체 검색 + 서류미비 필터)
+      operationId: listWorkers
+      tags: [Workers]
+      parameters:
+        - name: search
+          in: query
+          description: 이름 부분 일치 검색 (현장 구분 없이 전체 대상)
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/WorkerStatus" }
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        "200":
+          description: 페이지네이션된 근로자 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Worker" }
+                  pagination:
+                    $ref: "#/components/schemas/CursorPage"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+    post:
+      summary: 근로자 등록 (임시 등록 — 이름만으로 가능)
+      operationId: createWorker
+      tags: [Workers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkerCreateRequest" }
+      responses:
+        "201":
+          description: 등록 완료
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Worker" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /workers/{workerId}:
+    parameters:
+      - name: workerId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: 근로자 상세 (증빙 업로드 상태 포함)
+      operationId: getWorker
+      tags: [Workers]
+      responses:
+        "200":
+          description: 근로자 상세
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Worker" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: 근로자 정보 수정 (임시→정식 전환, 소속 현장 변경 포함)
+      operationId: updateWorker
+      tags: [Workers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkerUpdateRequest" }
+      responses:
+        "200":
+          description: 수정 완료
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Worker" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >
+            status를 'active'로 전환하려 했으나 필수 필드(주민등록번호/전화번호/계좌정보)가
+            비어 있어 정식 전환 조건을 만족하지 못함
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /workers/{workerId}/files:
+    parameters:
+      - name: workerId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: 신분증/통장 사본 업로드
+      operationId: uploadWorkerFile
+      tags: [WorkerFiles]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [type, file]
+              properties:
+                type: { $ref: "#/components/schemas/WorkerFileType" }
+                file: { type: string, format: binary }
+      responses:
+        "201":
+          description: 업로드 완료
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkerFileUploadResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413":
+          description: 파일 용량 초과
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "415":
+          description: 허용되지 않는 파일 형식 (jpg/png/pdf 이외)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /workers/{workerId}/files/{type}:
+    parameters:
+      - name: workerId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: type
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/WorkerFileType" }
+    get:
+      summary: 신분증/통장 사본 다운로드
+      operationId: downloadWorkerFile
+      tags: [WorkerFiles]
+      responses:
+        "200":
+          description: 파일 바이너리 (내부적으로 MinIO에서 스트리밍 또는 서명된 URL로 302 리다이렉트 가능)
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /workers/{workerId}/site-history:
+    parameters:
+      - name: workerId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: 현장 이동 이력 조회
+      operationId: listWorkerSiteHistory
+      tags: [Workers]
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        "200":
+          description: 현장 이동 이력 (최신순)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SiteAssignmentLogEntry" }
+                  pagination:
+                    $ref: "#/components/schemas/CursorPage"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /workers/{workerId}/rates:
+    parameters:
+      - name: workerId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: 단가 이력 조회
+      operationId: listWorkerRates
+      tags: [WorkerRates]
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        "200":
+          description: 단가 이력 (최신순)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/WorkerRate" }
+                  pagination:
+                    $ref: "#/components/schemas/CursorPage"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      summary: 단가 등록 (기간 겹침 검사, audit 기록)
+      operationId: createWorkerRate
+      tags: [WorkerRates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkerRateCreateRequest" }
+      responses:
+        "201":
+          description: 등록 완료
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkerRate" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: 기존 단가 기간과 겹침
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /rates/{rateId}:
+    parameters:
+      - name: rateId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      summary: 단가 수정/종료 (effective_to 지정으로 종료)
+      operationId: updateWorkerRate
+      tags: [WorkerRates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkerRateUpdateRequest" }
+      responses:
+        "200":
+          description: 수정 완료
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkerRate" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: 다른 단가 기간과 겹침
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /sites:
+    get:
+      summary: 현장(프로젝트) 목록 조회
+      operationId: listSites
+      tags: [Sites]
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        "200":
+          description: 현장 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Site" }
+                  pagination:
+                    $ref: "#/components/schemas/CursorPage"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      summary: 현장(프로젝트) 추가
+      operationId: createSite
+      tags: [Sites]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SiteCreateRequest" }
+      responses:
+        "201":
+          description: 추가 완료
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Site" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+components:
+  schemas:
+    WorkerStatus:
+      type: string
+      enum: [active, provisional]
+      description: active=정식 등록, provisional=임시 등록(서류 미비)
+
+    WorkerFileType:
+      type: string
+      enum: [id_scan, bankbook_scan]
+
+    Worker:
+      type: object
+      required: [id, name, status, created_at]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        name: { type: string }
+        birth_date: { type: [string, "null"], format: date }
+        status: { $ref: "#/components/schemas/WorkerStatus" }
+        phone: { type: [string, "null"] }
+        address: { type: [string, "null"] }
+        bank_name: { type: [string, "null"] }
+        resident_registration_number_masked:
+          type: [string, "null"]
+          readOnly: true
+          description: "마스킹된 형태만 응답에 포함 (예: 901231-1******). 평문은 어떤 응답에도 포함하지 않음."
+          example: "901231-1******"
+        bank_account_masked:
+          type: [string, "null"]
+          readOnly: true
+          example: "110-***-******12"
+        id_scan_uploaded: { type: boolean, readOnly: true }
+        bankbook_scan_uploaded: { type: boolean, readOnly: true }
+        current_site_id: { type: [string, "null"], format: uuid }
+        created_at: { type: string, format: date-time, readOnly: true }
+
+    WorkerCreateRequest:
+      type: object
+      required: [name]
+      description: 임시 등록 시 name 외 전부 생략 가능(이름만으로 등록). birth_date는 정식 전환 시 필요.
+      properties:
+        name: { type: string, minLength: 1 }
+        birth_date: { type: [string, "null"], format: date }
+        phone: { type: [string, "null"] }
+        address: { type: [string, "null"] }
+        bank_name: { type: [string, "null"] }
+        resident_registration_number:
+          type: [string, "null"]
+          writeOnly: true
+          description: "형식 강제 없음 — 서류 확보 전 임시값 입력 허용."
+        bank_account_number: { type: [string, "null"], writeOnly: true }
+        current_site_id: { type: [string, "null"], format: uuid }
+
+    WorkerUpdateRequest:
+      type: object
+      description: 전달된 필드만 갱신. status를 'active'로 바꾸려면 생년월일/주민등록번호/전화번호/계좌정보가 모두 채워져 있어야 함(409 참고).
+      properties:
+        name: { type: string, minLength: 1 }
+        birth_date: { type: [string, "null"], format: date }
+        status: { $ref: "#/components/schemas/WorkerStatus" }
+        phone: { type: [string, "null"] }
+        address: { type: [string, "null"] }
+        bank_name: { type: [string, "null"] }
+        resident_registration_number:
+          type: [string, "null"]
+          writeOnly: true
+          description: "형식 강제 없음 — 서류 확보 전 임시값 입력 허용."
+        bank_account_number: { type: [string, "null"], writeOnly: true }
+        current_site_id: { type: [string, "null"], format: uuid }
+
+    WorkerFileUploadResult:
+      type: object
+      required: [type, uploaded_at]
+      properties:
+        type: { $ref: "#/components/schemas/WorkerFileType" }
+        uploaded_at: { type: string, format: date-time }
+
+    SiteAssignmentLogEntry:
+      type: object
+      required: [id, site_id, site_name, assigned_from]
+      properties:
+        id: { type: string, format: uuid }
+        site_id: { type: string, format: uuid }
+        site_name: { type: string }
+        assigned_from: { type: string, format: date }
+        assigned_to: { type: [string, "null"], format: date }
+
+    WorkerRate:
+      type: object
+      required: [id, worker_id, daily_rate, effective_from, created_by, created_at]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        worker_id: { type: string, format: uuid, readOnly: true }
+        daily_rate: { type: integer, minimum: 0, description: "원 단위" }
+        effective_from: { type: string, format: date }
+        effective_to: { type: [string, "null"], format: date, description: "NULL이면 현재 유효" }
+        created_by: { type: string, format: uuid, readOnly: true }
+        created_at: { type: string, format: date-time, readOnly: true }
+
+    WorkerRateCreateRequest:
+      type: object
+      required: [daily_rate, effective_from]
+      properties:
+        daily_rate: { type: integer, minimum: 0 }
+        effective_from: { type: string, format: date }
+        effective_to: { type: [string, "null"], format: date }
+
+    WorkerRateUpdateRequest:
+      type: object
+      properties:
+        daily_rate: { type: integer, minimum: 0 }
+        effective_to: { type: [string, "null"], format: date }
+
+    Site:
+      type: object
+      required: [id, name, client_name, start_date, created_at]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        name: { type: string }
+        client_name: { type: string, description: "원청명 (예: LH)" }
+        start_date: { type: string, format: date }
+        created_at: { type: string, format: date-time, readOnly: true }
+
+    SiteCreateRequest:
+      type: object
+      required: [name, client_name, start_date]
+      properties:
+        name: { type: string, minLength: 1 }
+        client_name: { type: string, minLength: 1 }
+        start_date: { type: string, format: date }
+
+    CursorPage:
+      type: object
+      required: [next_cursor, has_more]
+      properties:
+        next_cursor: { type: [string, "null"] }
+        has_more: { type: boolean }
+
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string, format: uri }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+  responses:
+    BadRequest:
+      description: 잘못된 요청 파라미터
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Unauthorized:
+      description: 인증 토큰 누락/만료
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    NotFound:
+      description: 리소스 없음
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    ValidationError:
+      description: 필드 검증 실패
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    TooManyRequests:
+      description: 요청 한도 초과
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

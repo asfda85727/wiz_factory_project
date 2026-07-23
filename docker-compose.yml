@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_USER: labor_cost
+      POSTGRES_PASSWORD: labor_cost
+      POSTGRES_DB: labor_cost
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labor_cost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    # latest 태그 대신 pull 시점의 digest로 고정 (infra.md: never latest)
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: laborcost
+      MINIO_ROOT_PASSWORD: laborcost123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  minio_data:
