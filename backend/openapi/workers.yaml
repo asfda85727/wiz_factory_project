@@ -127,6 +127,15 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
         "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      summary: 근로자 완전 삭제 (출역/정산/단가/현장이동이력 전부 함께 삭제됨)
+      operationId: deleteWorker
+      tags: [Workers]
+      responses:
+        "204":
+          description: 삭제 완료
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /workers/{workerId}/files:
     parameters:
@@ -356,6 +365,45 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
+  /sites/{siteId}:
+    parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      summary: 현장 정보 수정
+      operationId: updateSite
+      tags: [Sites]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SiteUpdateRequest" }
+      responses:
+        "200":
+          description: 수정 완료
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Site" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      summary: 현장 삭제
+      operationId: deleteSite
+      tags: [Sites]
+      responses:
+        "204":
+          description: 삭제 완료
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: 이 현장에 연결된 근로자 또는 출역 기록이 있어 삭제할 수 없음
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
 components:
   schemas:
     WorkerStatus:
@@ -482,6 +530,13 @@ components:
     SiteCreateRequest:
       type: object
       required: [name, client_name, start_date]
+      properties:
+        name: { type: string, minLength: 1 }
+        client_name: { type: string, minLength: 1 }
+        start_date: { type: string, format: date }
+
+    SiteUpdateRequest:
+      type: object
       properties:
         name: { type: string, minLength: 1 }
         client_name: { type: string, minLength: 1 }

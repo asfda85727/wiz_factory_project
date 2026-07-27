@@ -4,7 +4,7 @@
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import AdminContext, get_current_admin
@@ -15,9 +15,10 @@ from app.schemas.attendance import (
     AttendanceListResponse,
     AttendanceRecordResponse,
     AttendanceUpdateRequest,
+    PdfPreviewResponse,
     WorkerMonthlyAttendanceResponse,
 )
-from app.services import attendance_service
+from app.services import attendance_pdf_service, attendance_service
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"], dependencies=[Depends(get_current_admin)])
 
@@ -65,6 +66,25 @@ async def update_attendance_record(
     response = await attendance_service.update_attendance(db, UUID(admin.user_id), attendance_id, payload)
     await db.commit()
     return response
+
+
+@router.post("/pdf-preview", response_model=PdfPreviewResponse)
+async def preview_attendance_pdf(
+    site_id: UUID = Form(),
+    file: UploadFile = File(),
+    db: AsyncSession = Depends(get_db_session),
+) -> PdfPreviewResponse:
+    pdf_bytes = await file.read()
+    return await attendance_pdf_service.preview(db, site_id, pdf_bytes)
+
+
+@router.delete("/{attendance_id}", status_code=204)
+async def delete_attendance_record(
+    attendance_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+) -> None:
+    await attendance_service.delete_attendance(db, attendance_id)
+    await db.commit()
 
 
 @router.get("/monthly", response_model=AttendanceListResponse)

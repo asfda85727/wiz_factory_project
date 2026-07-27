@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { api, ApiError } from "../services/apiClient"
 import { useSites } from "../hooks/useSites"
-import type { AttendanceRecord, AttendanceSummary, CursorPage, Worker } from "../types"
+import { AttendancePdfImportPanel } from "../components/AttendancePdfImportPanel"
+import type { AttendancePdfPreviewResponse, AttendanceRecord, AttendanceSummary, CursorPage, Worker } from "../types"
 
 interface EntryRow {
   worker_id: string
@@ -46,6 +47,9 @@ export function AttendancePage() {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [pdfPreview, setPdfPreview] = useState<AttendancePdfPreviewResponse | null>(null)
+  const [isUploadingPdf, setIsUploadingPdf] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     api.get<CursorPage<Worker>>("/workers?limit=100").then((page) => setWorkers(page.data))
@@ -92,10 +96,6 @@ export function AttendancePage() {
       { worker_id: addWorkerId, worker_name: worker?.name ?? "", trade: worker?.trade ?? null, is_present: true },
     ])
     setAddWorkerId("")
-  }
-
-  const updateEntry = (workerId: string, changes: Partial<EntryRow>) => {
-    setEntries((prev) => prev.map((entry) => (entry.worker_id === workerId ? { ...entry, ...changes } : entry)))
   }
 
   const removeEntry = (workerId: string) => {
@@ -154,6 +154,32 @@ export function AttendancePage() {
     }
   }
 
+  const handlePdfFileSelected = async (file: File) => {
+    if (!siteId) return
+    setIsUploadingPdf(true)
+    setError(null)
+    try {
+      const formData = new FormData()
+      formData.append("site_id", siteId)
+      formData.append("file", file)
+      const response = await api.postForm<AttendancePdfPreviewResponse>("/attendance/pdf-preview", formData)
+      setPdfPreview(response)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "PDF를 읽지 못했습니다.")
+    } finally {
+      setIsUploadingPdf(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
+  const handlePdfSaved = (savedDates: string[]) => {
+    setPdfPreview(null)
+    setMessage("PDF 명단을 반영했습니다.")
+    if (savedDates.includes(workDate)) {
+      loadDaily()
+    }
+  }
+
   const addableWorkers = workers.filter(
     (worker) => worker.current_site_id === siteId && !entries.some((entry) => entry.worker_id === worker.id),
   )
@@ -181,6 +207,23 @@ export function AttendancePage() {
           </label>
           <button type="button" onClick={handleCopyPrevious} disabled={!siteId || isSaving}>
             전일 명단 복사
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) handlePdfFileSelected(file)
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!siteId || isUploadingPdf}
+          >
+            {isUploadingPdf ? "PDF 읽는 중..." : "PDF로 명단 가져오기"}
           </button>
         </div>
 
@@ -218,13 +261,6 @@ export function AttendancePage() {
                         {rows.map((entry) => (
                           <tr key={entry.worker_id}>
                             <td>{entry.worker_name}</td>
-                            <td>
-                              <input
-                                type="checkbox"
-                                checked={entry.is_present}
-                                onChange={(e) => updateEntry(entry.worker_id, { is_present: e.target.checked })}
-                              />
-                            </td>
                             <td>
                               <button type="button" onClick={() => removeEntry(entry.worker_id)}>
                                 제거
@@ -273,6 +309,15 @@ export function AttendancePage() {
           </>
         )}
       </div>
+
+      {pdfPreview && (
+        <AttendancePdfImportPanel
+          siteId={siteId}
+          preview={pdfPreview}
+          onClose={() => setPdfPreview(null)}
+          onSaved={handlePdfSaved}
+        />
+      )}
     </div>
   )
 }

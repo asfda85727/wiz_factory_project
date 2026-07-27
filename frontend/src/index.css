@@ -436,6 +436,16 @@ tr.selectable:hover {
   color: var(--success);
 }
 
+.badge.danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.checkbox-lg {
+  transform: scale(2);
+  margin: 8px;
+}
+
 .field-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -448,7 +458,11 @@ tr.selectable:hover {
   font-size: 18px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
+  :root {
+    font-size: 16px;
+  }
+
   .app-shell {
     height: auto;
     flex-direction: column;
@@ -461,13 +475,19 @@ tr.selectable:hover {
     flex-direction: row;
     align-items: center;
     flex-wrap: wrap;
-    gap: 10px;
-    padding: 16px 18px;
+    gap: 8px;
+    padding: 12px 16px;
   }
 
   .app-sidebar-title {
+    font-size: 18px;
     padding: 0;
     width: 100%;
+  }
+
+  .app-sidebar a {
+    font-size: 14px;
+    padding: 12px 14px;
   }
 
   .app-sidebar-links {
@@ -478,14 +498,103 @@ tr.selectable:hover {
   .logout-button {
     margin-top: 0;
     margin-left: auto;
+    font-size: 14px;
   }
 
   .app-content {
     height: auto;
-    padding: 24px 18px 36px;
+    padding: 16px 12px 24px;
+  }
+
+  .app-content > * {
+    max-width: 100%;
   }
 
   h1 {
-    font-size: 26px;
+    font-size: 22px;
+    margin-bottom: 16px;
+  }
+
+  h2 {
+    font-size: 18px;
+    margin-bottom: 12px;
+  }
+
+  button {
+    font-size: 14px;
+    padding: 10px 16px;
+  }
+
+  input,
+  select {
+    font-size: 16px;
+    padding: 10px 12px;
+  }
+
+  label {
+    font-size: 14px;
+    gap: 6px;
+  }
+
+  .login-form {
+    width: 100%;
+    max-width: 90vw;
+    padding: 32px 24px;
+    gap: 16px;
+  }
+
+  .login-form h1 {
+    font-size: 24px;
+    margin-bottom: 4px;
+  }
+
+  .panel {
+    padding: 16px 16px;
+    margin-bottom: 16px;
+    border-radius: 10px;
+  }
+
+  table {
+    font-size: 14px;
+  }
+
+  th,
+  td {
+    padding: 10px 8px;
+    font-size: 13px;
+  }
+
+  .toolbar {
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .field-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .trade-cards {
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .trade-card {
+    min-width: 120px;
+    padding: 12px 14px;
+    border-radius: 8px;
+  }
+
+  .numeric-table td:nth-last-child(2) {
+    font-size: 16px;
+  }
+
+  .numeric-table tfoot td {
+    font-size: 14px;
+  }
+
+  .numeric-table tfoot td:nth-last-child(2) {
+    font-size: 16px;
   }
 }

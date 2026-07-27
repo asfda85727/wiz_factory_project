@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AttendanceSiteConflictError, NotFoundError
+from app.core.exceptions import AttendanceDateConflictError, AttendanceSiteConflictError, NotFoundError
 from app.repositories import attendance_repository
 from app.schemas.attendance import AttendanceDailySaveRequest, AttendanceEntryInput, AttendanceUpdateRequest
 from app.schemas.worker import WorkerCreateRequest
@@ -272,6 +272,76 @@ async def test_update_attendance_records_audit_log(db_session: AsyncSession, act
 async def test_update_attendance_not_found_raises(db_session: AsyncSession, actor_id):
     with pytest.raises(NotFoundError):
         await attendance_service.update_attendance(db_session, actor_id, uuid4(), AttendanceUpdateRequest())
+
+
+async def test_update_attendance_changes_work_date_and_site(
+    db_session: AsyncSession, actor_id, site_id, other_site_id
+):
+    worker = await _create_worker(db_session)
+    saved = await attendance_service.save_daily(
+        db_session,
+        actor_id,
+        AttendanceDailySaveRequest(
+            site_id=site_id, work_date=WORK_DATE, entries=[AttendanceEntryInput(worker_id=worker.id)]
+        ),
+    )
+    attendance_id = saved.data[0].id
+    new_date = date(2026, 7, 21)
+
+    updated = await attendance_service.update_attendance(
+        db_session, actor_id, attendance_id, AttendanceUpdateRequest(work_date=new_date, site_id=other_site_id)
+    )
+
+    assert updated.work_date == new_date
+    assert updated.site_id == other_site_id
+
+
+async def test_update_attendance_raises_when_target_date_already_taken(
+    db_session: AsyncSession, actor_id, site_id
+):
+    worker = await _create_worker(db_session)
+    await attendance_service.save_daily(
+        db_session,
+        actor_id,
+        AttendanceDailySaveRequest(
+            site_id=site_id, work_date=PREVIOUS_DATE, entries=[AttendanceEntryInput(worker_id=worker.id)]
+        ),
+    )
+    saved = await attendance_service.save_daily(
+        db_session,
+        actor_id,
+        AttendanceDailySaveRequest(
+            site_id=site_id, work_date=WORK_DATE, entries=[AttendanceEntryInput(worker_id=worker.id)]
+        ),
+    )
+    attendance_id = saved.data[0].id
+
+    with pytest.raises(AttendanceDateConflictError):
+        await attendance_service.update_attendance(
+            db_session, actor_id, attendance_id, AttendanceUpdateRequest(work_date=PREVIOUS_DATE)
+        )
+
+
+async def test_delete_attendance_removes_record(db_session: AsyncSession, actor_id, site_id):
+    worker = await _create_worker(db_session, trade="철거")
+    saved = await attendance_service.save_daily(
+        db_session,
+        actor_id,
+        AttendanceDailySaveRequest(
+            site_id=site_id, work_date=WORK_DATE, entries=[AttendanceEntryInput(worker_id=worker.id)]
+        ),
+    )
+    attendance_id = saved.data[0].id
+
+    await attendance_service.delete_attendance(db_session, attendance_id)
+
+    remaining = await attendance_service.get_daily(db_session, site_id, WORK_DATE, None)
+    assert remaining.data == []
+
+
+async def test_delete_attendance_not_found_raises(db_session: AsyncSession):
+    with pytest.raises(NotFoundError):
+        await attendance_service.delete_attendance(db_session, uuid4())
 
 
 async def test_get_worker_monthly_spans_sites(

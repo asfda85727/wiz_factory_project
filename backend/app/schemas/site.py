@@ -14,6 +14,12 @@ class SiteCreateRequest(BaseModel):
     start_date: date
 
 
+class SiteUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    client_name: str | None = Field(default=None, min_length=1)
+    start_date: date | None = None
+
+
 class SiteResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

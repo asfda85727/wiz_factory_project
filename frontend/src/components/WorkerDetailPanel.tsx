@@ -1,19 +1,17 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { FormEvent } from "react"
 import { api, ApiError } from "../services/apiClient"
-import { useTrades } from "../hooks/useTrades"
 import { useWorkerRate } from "../hooks/useWorkerRate"
 import type { Site, Worker } from "../types"
 
 interface WorkerDetailPanelProps {
   worker: Worker
   sites: Site[]
+  existingTrades: string[]
   onUpdated: (worker: Worker) => void
+  onDeleted: (workerId: string) => void
   onClose: () => void
-  onCreateSite: (input: { name: string; client_name: string; start_date: string }) => Promise<Site>
 }
-
-const NEW_SITE_OPTION = "__new__"
 
 interface EditableFields {
   name: string
@@ -41,11 +39,18 @@ function toFormState(worker: Worker): EditableFields {
   }
 }
 
-export function WorkerDetailPanel({ worker, sites, onUpdated, onClose, onCreateSite }: WorkerDetailPanelProps) {
+export function WorkerDetailPanel({
+  worker,
+  sites,
+  existingTrades,
+  onUpdated,
+  onDeleted,
+  onClose,
+}: WorkerDetailPanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null)
   const [form, setForm] = useState<EditableFields>(() => toFormState(worker))
   const [error, setError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
-  const { trades } = useTrades(form.current_site_id || null)
   const { currentRate, isLoading: isRateLoading, reload: reloadRate } = useWorkerRate(worker.id)
 
   const [rateInput, setRateInput] = useState("")
@@ -56,6 +61,10 @@ export function WorkerDetailPanel({ worker, sites, onUpdated, onClose, onCreateS
   useEffect(() => {
     setRateInput(currentRate ? String(currentRate.daily_rate) : "")
   }, [currentRate])
+
+  useEffect(() => {
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }, [worker.id])
 
   const handleSaveRate = async (event: FormEvent) => {
     event.preventDefault()
@@ -76,43 +85,6 @@ export function WorkerDetailPanel({ worker, sites, onUpdated, onClose, onCreateS
       setRateError(err instanceof ApiError ? err.message : "단가 저장에 실패했습니다.")
     } finally {
       setIsSavingRate(false)
-    }
-  }
-
-  const [isAddingSite, setIsAddingSite] = useState(false)
-  const [newSiteName, setNewSiteName] = useState("")
-  const [newSiteClient, setNewSiteClient] = useState("")
-  const [newSiteStartDate, setNewSiteStartDate] = useState("")
-  const [siteCreateError, setSiteCreateError] = useState<string | null>(null)
-  const [isCreatingSite, setIsCreatingSite] = useState(false)
-
-  const handleSiteSelectChange = (value: string) => {
-    if (value === NEW_SITE_OPTION) {
-      setIsAddingSite(true)
-      setSiteCreateError(null)
-      return
-    }
-    setForm({ ...form, current_site_id: value })
-  }
-
-  const handleCreateSite = async () => {
-    setSiteCreateError(null)
-    setIsCreatingSite(true)
-    try {
-      const site = await onCreateSite({
-        name: newSiteName,
-        client_name: newSiteClient,
-        start_date: newSiteStartDate,
-      })
-      setForm({ ...form, current_site_id: site.id })
-      setIsAddingSite(false)
-      setNewSiteName("")
-      setNewSiteClient("")
-      setNewSiteStartDate("")
-    } catch (err) {
-      setSiteCreateError(err instanceof ApiError ? err.message : "현장 생성에 실패했습니다.")
-    } finally {
-      setIsCreatingSite(false)
     }
   }
 
@@ -164,8 +136,21 @@ export function WorkerDetailPanel({ worker, sites, onUpdated, onClose, onCreateS
     }
   }
 
+  const handleDelete = async () => {
+    if (!confirm(`${worker.name}님을 삭제할까요? 출역·정산·단가 기록이 모두 함께 삭제되며 되돌릴 수 없습니다.`)) return
+    setError(null)
+    setIsSaving(true)
+    try {
+      await api.delete(`/workers/${worker.id}`)
+      onDeleted(worker.id)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "삭제에 실패했습니다.")
+      setIsSaving(false)
+    }
+  }
+
   return (
-    <div className="panel">
+    <div className="panel" ref={panelRef}>
       <div className="toolbar">
         <h2>{worker.name} 상세</h2>
         <button type="button" onClick={onClose} style={{ marginLeft: "auto" }}>
@@ -249,47 +234,17 @@ export function WorkerDetailPanel({ worker, sites, onUpdated, onClose, onCreateS
           </label>
           <label>
             소속 현장
-            {isAddingSite ? (
-              <div className="field-grid" style={{ marginTop: 4 }}>
-                <input
-                  value={newSiteName}
-                  onChange={(e) => setNewSiteName(e.target.value)}
-                  placeholder="현장명"
-                  required
-                />
-                <input
-                  value={newSiteClient}
-                  onChange={(e) => setNewSiteClient(e.target.value)}
-                  placeholder="발주처"
-                  required
-                />
-                <input
-                  type="date"
-                  value={newSiteStartDate}
-                  onChange={(e) => setNewSiteStartDate(e.target.value)}
-                  required
-                />
-                <div className="toolbar">
-                  <button type="button" className="primary" onClick={handleCreateSite} disabled={isCreatingSite}>
-                    생성
-                  </button>
-                  <button type="button" onClick={() => setIsAddingSite(false)} disabled={isCreatingSite}>
-                    취소
-                  </button>
-                </div>
-                {siteCreateError && <p className="form-error">{siteCreateError}</p>}
-              </div>
-            ) : (
-              <select value={form.current_site_id} onChange={(e) => handleSiteSelectChange(e.target.value)}>
-                <option value="">미배정</option>
-                {sites.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name}
-                  </option>
-                ))}
-                <option value={NEW_SITE_OPTION}>+ 새 현장 추가...</option>
-              </select>
-            )}
+            <select
+              value={form.current_site_id}
+              onChange={(e) => setForm({ ...form, current_site_id: e.target.value })}
+            >
+              <option value="">미배정</option>
+              {sites.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             공정
@@ -300,7 +255,7 @@ export function WorkerDetailPanel({ worker, sites, onUpdated, onClose, onCreateS
               placeholder="예: 철거"
             />
             <datalist id="trade-suggestions">
-              {trades.map((trade) => (
+              {existingTrades.map((trade) => (
                 <option key={trade} value={trade} />
               ))}
             </datalist>
@@ -333,6 +288,9 @@ export function WorkerDetailPanel({ worker, sites, onUpdated, onClose, onCreateS
               정식 전환
             </button>
           )}
+          <button type="button" onClick={handleDelete} disabled={isSaving} style={{ marginLeft: "auto" }}>
+            삭제
+          </button>
         </div>
       </form>
     </div>

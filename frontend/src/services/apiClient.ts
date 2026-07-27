@@ -11,16 +11,18 @@ export class ApiError extends Error {
   }
 }
 
+// sessionStorage: 탭/창을 닫으면 토큰이 자동으로 사라져 다시 로그인해야 한다.
+// (localStorage와 달리 브라우저를 닫았다 열면 세션이 유지되지 않음 — 의도된 동작.)
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_STORAGE_KEY)
+  return sessionStorage.getItem(TOKEN_STORAGE_KEY)
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_STORAGE_KEY, token)
+  sessionStorage.setItem(TOKEN_STORAGE_KEY, token)
 }
 
 export function clearToken(): void {
-  localStorage.removeItem(TOKEN_STORAGE_KEY)
+  sessionStorage.removeItem(TOKEN_STORAGE_KEY)
 }
 
 async function parseErrorDetail(response: Response): Promise<string> {
@@ -70,5 +72,6 @@ export const api = {
     request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
+  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   postForm: <T>(path: string, form: FormData) => request<T>(path, { method: "POST", body: form }),
 }

@@ -6,6 +6,7 @@ import { LoginPage } from "./pages/LoginPage"
 import { WorkersPage } from "./pages/WorkersPage"
 import { AttendancePage } from "./pages/AttendancePage"
 import { PayrollPage } from "./pages/PayrollPage"
+import { SitesPage } from "./pages/SitesPage"
 
 export default function App() {
   return (
@@ -38,6 +39,16 @@ export default function App() {
             <ProtectedRoute>
               <Layout>
                 <PayrollPage />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/sites"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <SitesPage />
               </Layout>
             </ProtectedRoute>
           }

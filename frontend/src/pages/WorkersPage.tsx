@@ -11,7 +11,7 @@ const STATUS_LABEL: Record<WorkerStatus, string> = {
 }
 
 export function WorkersPage() {
-  const { sites, createSite } = useSites()
+  const { sites } = useSites()
   const [workers, setWorkers] = useState<Worker[]>([])
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<"" | WorkerStatus>("")
@@ -26,6 +26,8 @@ export function WorkersPage() {
   const [isCreating, setIsCreating] = useState(false)
 
   const siteNameById = new Map(sites.map((site) => [site.id, site.name]))
+  // 현장 제한 없이 "지금까지 입력된 공정" 전체를 후보로 보여준다(현재 로드된 목록 기준).
+  const existingTrades = [...new Set(workers.map((w) => w.trade).filter((t): t is string => !!t))].sort()
 
   const loadWorkers = async () => {
     setIsLoading(true)
@@ -93,7 +95,17 @@ export function WorkersPage() {
           </label>
           <label>
             공정 (선택)
-            <input value={newTrade} onChange={(e) => setNewTrade(e.target.value)} placeholder="예: 철거" />
+            <input
+              list="new-worker-trade-suggestions"
+              value={newTrade}
+              onChange={(e) => setNewTrade(e.target.value)}
+              placeholder="예: 철거"
+            />
+            <datalist id="new-worker-trade-suggestions">
+              {existingTrades.map((trade) => (
+                <option key={trade} value={trade} />
+              ))}
+            </datalist>
           </label>
           <button type="submit" className="primary" disabled={isCreating}>
             등록
@@ -174,9 +186,13 @@ export function WorkersPage() {
         <WorkerDetailPanel
           worker={selectedWorker}
           sites={sites}
-          onCreateSite={createSite}
+          existingTrades={existingTrades}
           onUpdated={(updated) => {
             setWorkers((prev) => prev.map((w) => (w.id === updated.id ? updated : w)))
+          }}
+          onDeleted={(deletedId) => {
+            setWorkers((prev) => prev.filter((w) => w.id !== deletedId))
+            setSelectedWorkerId(null)
           }}
           onClose={() => setSelectedWorkerId(null)}
         />

@@ -19,6 +19,9 @@ export function Layout({ children }: { children: ReactNode }) {
           <NavLink to="/payroll" className={({ isActive }) => (isActive ? "active" : "")}>
             명세서
           </NavLink>
+          <NavLink to="/sites" className={({ isActive }) => (isActive ? "active" : "")}>
+            현장 관리
+          </NavLink>
         </div>
         <button type="button" className="logout-button" onClick={logout}>
           로그아웃

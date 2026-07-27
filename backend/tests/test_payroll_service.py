@@ -174,6 +174,37 @@ async def test_recalculate_includes_worker_trade(db_session: AsyncSession, actor
     assert row.trade == "철거"
 
 
+async def test_recalculate_includes_worker_current_site(db_session: AsyncSession, actor_id, site_id):
+    worker = await _create_active_worker(db_session, "김철수")
+    await worker_service.update_worker(db_session, worker.id, WorkerUpdateRequest(current_site_id=site_id))
+    await rate_service.create_rate(
+        db_session, worker.id, actor_id, WorkerRateCreateRequest(daily_rate=150_000, effective_from="2026-01-01")
+    )
+    await _record_attendance(db_session, actor_id, site_id, worker.id, PRESENT_DATES)
+
+    result = await payroll_service.recalculate_month(db_session, TARGET_YEAR, TARGET_MONTH)
+
+    row = next(r for r in result.data if r.worker_id == worker.id)
+    assert row.site_id == site_id
+    assert row.site_name
+
+
+async def test_recalculate_site_is_none_when_worker_has_no_current_site(
+    db_session: AsyncSession, actor_id, site_id
+):
+    worker = await _create_active_worker(db_session)
+    await rate_service.create_rate(
+        db_session, worker.id, actor_id, WorkerRateCreateRequest(daily_rate=150_000, effective_from="2026-01-01")
+    )
+    await _record_attendance(db_session, actor_id, site_id, worker.id, PRESENT_DATES)
+
+    result = await payroll_service.recalculate_month(db_session, TARGET_YEAR, TARGET_MONTH)
+
+    row = next(r for r in result.data if r.worker_id == worker.id)
+    assert row.site_id is None
+    assert row.site_name is None
+
+
 async def test_get_month_returns_stored_results(db_session: AsyncSession, actor_id, site_id):
     worker = await _create_active_worker(db_session)
     await rate_service.create_rate(

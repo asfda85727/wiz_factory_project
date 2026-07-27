@@ -7,7 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_admin
 from app.db.session import get_db_session
-from app.schemas.site import SiteCreateRequest, SiteListResponse, SiteResponse, SiteTradeListResponse
+from app.schemas.site import (
+    SiteCreateRequest,
+    SiteListResponse,
+    SiteResponse,
+    SiteTradeListResponse,
+    SiteUpdateRequest,
+)
 from app.services import site_service
 
 router = APIRouter(prefix="/sites", tags=["Sites"], dependencies=[Depends(get_current_admin)])
@@ -32,3 +38,18 @@ async def create_site(payload: SiteCreateRequest, db: AsyncSession = Depends(get
 @router.get("/{site_id}/trades", response_model=SiteTradeListResponse)
 async def get_site_trades(site_id: UUID, db: AsyncSession = Depends(get_db_session)) -> SiteTradeListResponse:
     return await site_service.get_trades(db, site_id)
+
+
+@router.patch("/{site_id}", response_model=SiteResponse)
+async def update_site(
+    site_id: UUID, payload: SiteUpdateRequest, db: AsyncSession = Depends(get_db_session)
+) -> SiteResponse:
+    response = await site_service.update_site(db, site_id, payload)
+    await db.commit()
+    return response
+
+
+@router.delete("/{site_id}", status_code=204)
+async def delete_site(site_id: UUID, db: AsyncSession = Depends(get_db_session)) -> None:
+    await site_service.delete_site(db, site_id)
+    await db.commit()

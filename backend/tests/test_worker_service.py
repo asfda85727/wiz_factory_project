@@ -1,14 +1,17 @@
-"""근로자 마스터 서비스: 정식전환 게이트, 현장이동이력 기록 검증."""
+"""근로자 마스터 서비스: 정식전환 게이트, 현장이동이력 기록, 완전 삭제 검증."""
 
+from datetime import date
 from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, WorkerActivationIncompleteError
-from app.repositories import site_assignment_repository
+from app.repositories import attendance_repository, site_assignment_repository
+from app.schemas.attendance import AttendanceDailySaveRequest, AttendanceEntryInput
+from app.schemas.rate import WorkerRateCreateRequest
 from app.schemas.worker import WorkerCreateRequest, WorkerStatus, WorkerUpdateRequest
-from app.services import worker_service
+from app.services import attendance_service, rate_service, worker_service
 
 
 async def _create_minimal_worker(db_session: AsyncSession):
@@ -64,6 +67,43 @@ async def test_create_worker_with_site_opens_assignment_log(db_session: AsyncSes
 async def test_get_worker_not_found_raises(db_session: AsyncSession):
     with pytest.raises(NotFoundError):
         await worker_service.get_worker(db_session, uuid4())
+
+
+async def test_delete_worker_removes_worker(db_session: AsyncSession):
+    worker = await _create_minimal_worker(db_session)
+
+    await worker_service.delete_worker(db_session, worker.id)
+
+    with pytest.raises(NotFoundError):
+        await worker_service.get_worker(db_session, worker.id)
+
+
+async def test_delete_worker_not_found_raises(db_session: AsyncSession):
+    with pytest.raises(NotFoundError):
+        await worker_service.delete_worker(db_session, uuid4())
+
+
+async def test_delete_worker_cascades_attendance_and_rate(db_session: AsyncSession, actor_id, site_id):
+    worker = await worker_service.create_worker(
+        db_session, WorkerCreateRequest(name="김철수", birth_date="1985-03-15", current_site_id=site_id)
+    )
+    await rate_service.create_rate(
+        db_session, worker.id, actor_id, WorkerRateCreateRequest(daily_rate=150_000, effective_from="2026-01-01")
+    )
+    await attendance_service.save_daily(
+        db_session,
+        actor_id,
+        AttendanceDailySaveRequest(
+            site_id=site_id, work_date=date(2026, 7, 20), entries=[AttendanceEntryInput(worker_id=worker.id)]
+        ),
+    )
+
+    await worker_service.delete_worker(db_session, worker.id)
+
+    remaining = await attendance_repository.list_by_site_and_date(db_session, site_id, date(2026, 7, 20))
+    assert all(r.worker_id != worker.id for r in remaining)
+    rows, _, _ = await site_assignment_repository.list_site_history(db_session, worker.id, None, 20)
+    assert rows == []
 
 
 async def test_activate_without_required_fields_raises(db_session: AsyncSession):

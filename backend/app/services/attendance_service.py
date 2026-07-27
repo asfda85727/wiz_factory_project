@@ -16,7 +16,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AttendanceSiteConflictError, NotFoundError
+from app.core.exceptions import AttendanceDateConflictError, AttendanceSiteConflictError, NotFoundError
 from app.models.attendance_record import AttendanceRecord
 from app.models.attendance_audit_log import AttendanceAuditLog
 from app.repositories import attendance_repository, site_repository, worker_repository
@@ -133,18 +133,34 @@ async def update_attendance(
     if record is None:
         raise NotFoundError(f"출역 기록을 찾을 수 없습니다: {attendance_id}")
 
-    old_value = f"is_present={record.is_present}"
+    old_value = f"is_present={record.is_present}, work_date={record.work_date}, site_id={record.site_id}"
+
+    if payload.work_date is not None and payload.work_date != record.work_date:
+        conflict = await attendance_repository.get_by_worker_and_date(db, record.worker_id, payload.work_date)
+        if conflict is not None and conflict.id != record.id:
+            raise AttendanceDateConflictError(f"이미 {payload.work_date}에 이 근로자의 출역 기록이 있습니다.")
+        record.work_date = payload.work_date
+
+    if payload.site_id is not None:
+        record.site_id = payload.site_id
 
     if payload.is_present is not None:
         record.is_present = payload.is_present
 
-    new_value = f"is_present={record.is_present}"
+    new_value = f"is_present={record.is_present}, work_date={record.work_date}, site_id={record.site_id}"
     db.add(AttendanceAuditLog(attendance_id=record.id, changed_by=actor_id, old_value=old_value, new_value=new_value))
 
     await db.flush()
     await db.refresh(record)
     worker = await worker_repository.get_worker_by_id(db, record.worker_id)
     return _to_response(record, worker.name if worker else "", worker.trade if worker else None)
+
+
+async def delete_attendance(db: AsyncSession, attendance_id: UUID) -> None:
+    record = await attendance_repository.get_by_id(db, attendance_id)
+    if record is None:
+        raise NotFoundError(f"출역 기록을 찾을 수 없습니다: {attendance_id}")
+    await attendance_repository.delete_record(db, record)
 
 
 async def get_monthly(db: AsyncSession, site_id: UUID, year: int, month: int) -> AttendanceListResponse:
@@ -166,6 +182,7 @@ async def get_worker_monthly(
     # (공정을 나중에 지정한 경우 과거 출역 기록의 빈 공정이 그대로 노출되는 문제 방지).
     days = [
         WorkerAttendanceDayResponse(
+            id=r.id,
             work_date=r.work_date,
             site_id=r.site_id,
             site_name=site_names.get(r.site_id, ""),

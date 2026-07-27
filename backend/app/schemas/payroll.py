@@ -13,6 +13,8 @@ class PayrollResultResponse(BaseModel):
     worker_id: UUID
     worker_name: str
     trade: str | None
+    site_id: UUID | None
+    site_name: str | None
     target_month: date
     work_days: int
     gross_pay: int

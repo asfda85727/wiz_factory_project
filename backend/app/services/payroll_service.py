@@ -14,7 +14,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.payroll_result import PayrollResult
-from app.repositories import payroll_repository, worker_repository
+from app.repositories import payroll_repository, site_repository, worker_repository
 from app.schemas.payroll import PayrollListResponse, PayrollResultResponse
 from app.schemas.worker import WorkerStatus
 from app.services.payroll_calculator import calculate_payroll
@@ -26,12 +26,16 @@ def _month_bounds(year: int, month: int) -> tuple[date, date]:
     return month_start, month_end
 
 
-def _to_response(result: PayrollResult, worker_name: str, trade: str | None) -> PayrollResultResponse:
+def _to_response(
+    result: PayrollResult, worker_name: str, trade: str | None, site_id, site_name: str | None
+) -> PayrollResultResponse:
     return PayrollResultResponse(
         id=result.id,
         worker_id=result.worker_id,
         worker_name=worker_name,
         trade=trade,
+        site_id=site_id,
+        site_name=site_name,
         target_month=result.target_month,
         work_days=result.work_days,
         gross_pay=result.gross_pay,
@@ -82,6 +86,19 @@ async def _upsert_result(
     return result
 
 
+def _build_responses(
+    results: list[PayrollResult],
+    info: dict[UUID, tuple[str, str | None, UUID | None]],
+    site_names: dict[UUID, str],
+) -> list[PayrollResultResponse]:
+    responses = []
+    for r in results:
+        worker_name, trade, site_id = info.get(r.worker_id, ("", None, None))
+        site_name = site_names.get(site_id) if site_id is not None else None
+        responses.append(_to_response(r, worker_name, trade, site_id, site_name))
+    return responses
+
+
 async def recalculate_month(db: AsyncSession, year: int, month: int) -> PayrollListResponse:
     month_start, month_end = _month_bounds(year, month)
     worker_ids = await payroll_repository.list_present_worker_ids_for_month(db, month_start, month_end)
@@ -90,10 +107,10 @@ async def recalculate_month(db: AsyncSession, year: int, month: int) -> PayrollL
     await payroll_repository.delete_results_except(db, month_start, worker_ids)
 
     results = []
-    info: dict[UUID, tuple[str, str | None]] = {}
+    info: dict[UUID, tuple[str, str | None, UUID | None]] = {}
     for worker_id in worker_ids:
         worker = await worker_repository.get_worker_by_id(db, worker_id)
-        info[worker_id] = (worker.name, worker.trade)
+        info[worker_id] = (worker.name, worker.trade, worker.current_site_id)
         work_days = await payroll_repository.count_present_days(db, worker_id, month_start, month_end)
 
         if worker.status == WorkerStatus.PROVISIONAL.value:
@@ -131,15 +148,15 @@ async def recalculate_month(db: AsyncSession, year: int, month: int) -> PayrollL
     await db.flush()
     for result in results:
         await db.refresh(result)
-    return PayrollListResponse(
-        data=[_to_response(r, *info.get(r.worker_id, ("", None))) for r in results]
-    )
+    site_ids = [site_id for (_, _, site_id) in info.values() if site_id is not None]
+    site_names = await site_repository.get_names_by_ids(db, site_ids)
+    return PayrollListResponse(data=_build_responses(results, info, site_names))
 
 
 async def get_month(db: AsyncSession, year: int, month: int) -> PayrollListResponse:
     month_start, _ = _month_bounds(year, month)
     results = await payroll_repository.list_by_month(db, month_start)
-    info = await worker_repository.get_name_trade_by_ids(db, [r.worker_id for r in results])
-    return PayrollListResponse(
-        data=[_to_response(r, *info.get(r.worker_id, ("", None))) for r in results]
-    )
+    info = await worker_repository.get_name_trade_site_by_ids(db, [r.worker_id for r in results])
+    site_ids = [site_id for (_, _, site_id) in info.values() if site_id is not None]
+    site_names = await site_repository.get_names_by_ids(db, site_ids)
+    return PayrollListResponse(data=_build_responses(results, info, site_names))

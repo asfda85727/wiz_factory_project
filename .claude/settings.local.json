@@ -44,7 +44,16 @@
       "Bash(curl -s http://localhost:8000/api/payroll?month=2026-07 -H 'Authorization: Bearer __TRACKED_VAR__')",
       "Bash(./.venv/Scripts/python.exe -m pytest tests/test_attendance_service.py tests/test_payroll_service.py -q)",
       "Bash(./.venv/Scripts/python.exe -m pytest tests/test_attendance_service.py -q)",
-      "Bash(cat backend/docker-compose.yml 2>/dev/null || find / -maxdepth 3 -iname \"docker-compose*\" 2>/dev/null)"
+      "Bash(cat backend/docker-compose.yml 2>/dev/null || find / -maxdepth 3 -iname \"docker-compose*\" 2>/dev/null)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_attendance_pdf_parser.py -v)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_attendance_pdf_service.py -v)",
+      "Bash(curl *)",
+      "Bash(./.venv/Scripts/python.exe scripts/_mint_test_token.py)",
+      "Bash(netstat -ano)",
+      "Bash(./.venv/Scripts/python.exe -m uvicorn app.main:app --port 8010)",
+      "Skill(claude-in-chrome)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_site_service.py -v)",
+      "PowerShell(try { Stop-Process -Id 28232 -Force -ErrorAction Stop; Write-Host \"killed\" } catch { Write-Host \"error: $\\($_.Exception.Message\\)\" })"
     ]
   },
   "enabledMcpjsonServers": [

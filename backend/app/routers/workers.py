@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import get_current_admin
+from app.core.auth import AdminContext, get_current_admin
 from app.db.session import get_db_session
 from app.schemas.worker import (
     SiteHistoryResponse,
@@ -37,8 +37,12 @@ async def list_workers(
 
 
 @router.post("", response_model=WorkerResponse, status_code=201)
-async def create_worker(payload: WorkerCreateRequest, db: AsyncSession = Depends(get_db_session)) -> WorkerResponse:
-    response = await worker_service.create_worker(db, payload)
+async def create_worker(
+    payload: WorkerCreateRequest,
+    db: AsyncSession = Depends(get_db_session),
+    admin: AdminContext = Depends(get_current_admin),
+) -> WorkerResponse:
+    response = await worker_service.create_worker(db, payload, UUID(admin.user_id))
     await db.commit()
     return response
 
@@ -50,9 +54,12 @@ async def get_worker(worker_id: UUID, db: AsyncSession = Depends(get_db_session)
 
 @router.patch("/{worker_id}", response_model=WorkerResponse)
 async def update_worker(
-    worker_id: UUID, payload: WorkerUpdateRequest, db: AsyncSession = Depends(get_db_session)
+    worker_id: UUID,
+    payload: WorkerUpdateRequest,
+    db: AsyncSession = Depends(get_db_session),
+    admin: AdminContext = Depends(get_current_admin),
 ) -> WorkerResponse:
-    response = await worker_service.update_worker(db, worker_id, payload)
+    response = await worker_service.update_worker(db, worker_id, payload, UUID(admin.user_id))
     await db.commit()
     return response
 
@@ -63,10 +70,11 @@ async def upload_worker_file(
     type: WorkerFileType = Form(...),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db_session),
+    admin: AdminContext = Depends(get_current_admin),
 ) -> WorkerFileUploadResult:
     data = await file.read()
     result = await worker_file_service.upload_worker_file(
-        db, worker_id, type, file.content_type or "application/octet-stream", data
+        db, worker_id, type, file.content_type or "application/octet-stream", data, UUID(admin.user_id)
     )
     await db.commit()
     return result
@@ -74,10 +82,20 @@ async def upload_worker_file(
 
 @router.get("/{worker_id}/files/{type}")
 async def download_worker_file(
-    worker_id: UUID, type: WorkerFileType, db: AsyncSession = Depends(get_db_session)
+    worker_id: UUID,
+    type: WorkerFileType,
+    db: AsyncSession = Depends(get_db_session),
+    admin: AdminContext = Depends(get_current_admin),
 ) -> Response:
-    data = await worker_file_service.download_worker_file(db, worker_id, type)
+    data = await worker_file_service.download_worker_file(db, worker_id, type, UUID(admin.user_id))
+    await db.commit()  # 다운로드 접근 로그 커밋
     return Response(content=data, media_type="application/octet-stream")
+
+
+@router.delete("/{worker_id}", status_code=204)
+async def delete_worker(worker_id: UUID, db: AsyncSession = Depends(get_db_session)) -> None:
+    await worker_service.delete_worker(db, worker_id)
+    await db.commit()
 
 
 @router.get("/{worker_id}/site-history", response_model=SiteHistoryResponse)

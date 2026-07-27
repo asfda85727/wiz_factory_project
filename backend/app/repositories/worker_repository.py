@@ -52,6 +52,10 @@ async def get_worker_by_id(db: AsyncSession, worker_id: UUID) -> Worker | None:
     return await db.get(Worker, worker_id)
 
 
+async def delete_worker(db: AsyncSession, worker: Worker) -> None:
+    await db.delete(worker)
+
+
 async def get_names_by_ids(db: AsyncSession, worker_ids: list[UUID]) -> dict[UUID, str]:
     if not worker_ids:
         return {}
@@ -66,3 +70,23 @@ async def get_name_trade_by_ids(
         return {}
     stmt = select(Worker.id, Worker.name, Worker.trade).where(Worker.id.in_(worker_ids))
     return {row[0]: (row[1], row[2]) for row in (await db.execute(stmt)).all()}
+
+
+async def get_name_trade_site_by_ids(
+    db: AsyncSession, worker_ids: list[UUID]
+) -> dict[UUID, tuple[str, str | None, UUID | None]]:
+    if not worker_ids:
+        return {}
+    stmt = select(Worker.id, Worker.name, Worker.trade, Worker.current_site_id).where(Worker.id.in_(worker_ids))
+    return {row[0]: (row[1], row[2], row[3]) for row in (await db.execute(stmt)).all()}
+
+
+async def get_by_exact_name(db: AsyncSession, name: str, preferred_site_id: UUID | None) -> list[Worker]:
+    """이름 정확 매칭(공백 정리 후). 동명이인 가능성 있어 리스트 반환,
+    호출 측에서 preferred_site_id와 같은 현장 소속을 우선으로 판단."""
+    stmt = select(Worker).where(Worker.name == name.strip())
+    if preferred_site_id is not None:
+        stmt = stmt.order_by(Worker.current_site_id != preferred_site_id, Worker.created_at)
+    else:
+        stmt = stmt.order_by(Worker.created_at)
+    return list((await db.execute(stmt)).scalars().all())

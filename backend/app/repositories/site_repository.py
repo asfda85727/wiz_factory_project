@@ -28,6 +28,10 @@ async def get_site_by_id(db: AsyncSession, site_id: UUID) -> Site | None:
     return await db.get(Site, site_id)
 
 
+async def delete_site(db: AsyncSession, site: Site) -> None:
+    await db.delete(site)
+
+
 async def get_names_by_ids(db: AsyncSession, site_ids: list[UUID]) -> dict[UUID, str]:
     if not site_ids:
         return {}

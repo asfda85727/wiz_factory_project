@@ -20,10 +20,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="노무비 관리 시스템 API", version="1.0.0", lifespan=lifespan)
 
+# 인증은 localStorage JWT를 Authorization: Bearer로 전송 — 쿠키를 쓰지 않으므로
+# allow_credentials는 불필요하다(끄면 origin 설정 실수 시 노출 표면도 줄어든다).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in settings.cors_allowed_origins.split(",") if origin.strip()],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

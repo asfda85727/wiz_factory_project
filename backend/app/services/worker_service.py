@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, WorkerActivationIncompleteError
 from app.core.security import encrypt_pii, mask_bank_account, mask_resident_registration_number
+from app.models.pii_access_log import PiiAccessLog
 from app.models.worker import Worker
 from app.repositories import site_assignment_repository, worker_repository
 from app.schemas.common import CursorPage
@@ -53,6 +54,27 @@ def _apply_sensitive_fields(
         worker.bank_account_masked = mask_bank_account(bank_account_number)
 
 
+def _log_pii_write(
+    db: AsyncSession,
+    actor_id: UUID | None,
+    worker_id: UUID,
+    resident_registration_number: str | None,
+    bank_account_number: str | None,
+) -> None:
+    """평문 개인정보가 입력·수정된 경우에만 접근 로그를 남긴다.
+    actor_id가 없으면(서비스 단독 호출·테스트) 기록을 건너뛴다 — 실제 API는 항상 관리자 ID를 넘긴다."""
+    if actor_id is None:
+        return
+    fields = [
+        label
+        for value, label in ((resident_registration_number, "주민번호"), (bank_account_number, "계좌번호"))
+        if value
+    ]
+    if not fields:
+        return
+    db.add(PiiAccessLog(worker_id=worker_id, actor_id=actor_id, action="pii_write", detail=",".join(fields)))
+
+
 def _has_activation_requirements(worker: Worker, incoming: WorkerUpdateRequest) -> bool:
     birth_date = incoming.birth_date if incoming.birth_date is not None else worker.birth_date
     phone = incoming.phone if incoming.phone is not None else worker.phone
@@ -61,7 +83,9 @@ def _has_activation_requirements(worker: Worker, incoming: WorkerUpdateRequest) 
     return bool(birth_date) and bool(phone) and has_resident_no and has_bank_account
 
 
-async def create_worker(db: AsyncSession, payload: WorkerCreateRequest) -> WorkerResponse:
+async def create_worker(
+    db: AsyncSession, payload: WorkerCreateRequest, actor_id: UUID | None = None
+) -> WorkerResponse:
     worker = Worker(
         name=payload.name,
         birth_date=payload.birth_date,
@@ -76,6 +100,8 @@ async def create_worker(db: AsyncSession, payload: WorkerCreateRequest) -> Worke
 
     db.add(worker)
     await db.flush()
+
+    _log_pii_write(db, actor_id, worker.id, payload.resident_registration_number, payload.bank_account_number)
 
     if worker.current_site_id is not None:
         await site_assignment_repository.create_assignment(db, worker.id, worker.current_site_id, date.today())
@@ -92,7 +118,17 @@ async def get_worker(db: AsyncSession, worker_id: UUID) -> WorkerResponse:
     return _to_response(worker)
 
 
-async def update_worker(db: AsyncSession, worker_id: UUID, payload: WorkerUpdateRequest) -> WorkerResponse:
+async def delete_worker(db: AsyncSession, worker_id: UUID) -> None:
+    worker = await worker_repository.get_worker_by_id(db, worker_id)
+    if worker is None:
+        raise NotFoundError(f"근로자를 찾을 수 없습니다: {worker_id}")
+    await worker_repository.delete_worker(db, worker)
+    await db.flush()
+
+
+async def update_worker(
+    db: AsyncSession, worker_id: UUID, payload: WorkerUpdateRequest, actor_id: UUID | None = None
+) -> WorkerResponse:
     worker = await worker_repository.get_worker_by_id(db, worker_id)
     if worker is None:
         raise NotFoundError(f"근로자를 찾을 수 없습니다: {worker_id}")
@@ -110,6 +146,7 @@ async def update_worker(db: AsyncSession, worker_id: UUID, payload: WorkerUpdate
             setattr(worker, field, value)
 
     _apply_sensitive_fields(worker, payload.resident_registration_number, payload.bank_account_number)
+    _log_pii_write(db, actor_id, worker.id, payload.resident_registration_number, payload.bank_account_number)
 
     if site_changed:
         today = date.today()

@@ -59,6 +59,18 @@ class AttendanceSiteConflictError(DomainError):
     title = "Attendance Site Conflict"
 
 
+class AttendanceDateConflictError(DomainError):
+    status_code = 409
+    problem_type = "attendance-date-conflict"
+    title = "Attendance Date Conflict"
+
+
+class SiteInUseError(DomainError):
+    status_code = 409
+    problem_type = "site-in-use"
+    title = "Site In Use"
+
+
 class UnsupportedFileTypeError(DomainError):
     status_code = 415
     problem_type = "unsupported-file-type"

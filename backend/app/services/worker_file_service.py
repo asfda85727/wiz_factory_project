@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import FileTooLargeError, NotFoundError, UnsupportedFileTypeError
+from app.models.pii_access_log import PiiAccessLog
 from app.repositories import worker_repository
 from app.schemas.worker import WorkerFileType, WorkerFileUploadResult
 from app.services.file_storage import ALLOWED_CONTENT_TYPES, MAX_FILE_SIZE_BYTES, download_file, upload_file
@@ -17,7 +18,12 @@ _FILE_KEY_ATTR = {
 
 
 async def upload_worker_file(
-    db: AsyncSession, worker_id: UUID, file_type: WorkerFileType, content_type: str, data: bytes
+    db: AsyncSession,
+    worker_id: UUID,
+    file_type: WorkerFileType,
+    content_type: str,
+    data: bytes,
+    actor_id: UUID | None = None,
 ) -> WorkerFileUploadResult:
     worker = await worker_repository.get_worker_by_id(db, worker_id)
     if worker is None:
@@ -30,12 +36,16 @@ async def upload_worker_file(
     object_key = f"workers/{worker_id}/{file_type.value}/{uuid4()}"
     upload_file(object_key, data, content_type)
     setattr(worker, _FILE_KEY_ATTR[file_type], object_key)
+    if actor_id is not None:
+        db.add(PiiAccessLog(worker_id=worker_id, actor_id=actor_id, action="file_upload", detail=file_type.value))
 
     await db.flush()
     return WorkerFileUploadResult(type=file_type, uploaded_at=datetime.now(timezone.utc))
 
 
-async def download_worker_file(db: AsyncSession, worker_id: UUID, file_type: WorkerFileType) -> bytes:
+async def download_worker_file(
+    db: AsyncSession, worker_id: UUID, file_type: WorkerFileType, actor_id: UUID | None = None
+) -> bytes:
     worker = await worker_repository.get_worker_by_id(db, worker_id)
     if worker is None:
         raise NotFoundError(f"근로자를 찾을 수 없습니다: {worker_id}")
@@ -43,5 +53,9 @@ async def download_worker_file(db: AsyncSession, worker_id: UUID, file_type: Wor
     object_key = getattr(worker, _FILE_KEY_ATTR[file_type])
     if object_key is None:
         raise NotFoundError(f"업로드된 파일이 없습니다: {file_type.value}")
+
+    if actor_id is not None:
+        db.add(PiiAccessLog(worker_id=worker_id, actor_id=actor_id, action="file_download", detail=file_type.value))
+        await db.flush()
 
     return download_file(object_key)

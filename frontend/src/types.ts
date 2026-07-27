@@ -59,6 +59,8 @@ export interface PayrollResult {
   worker_id: string
   worker_name: string
   trade: string | null
+  site_id: string | null
+  site_name: string | null
   target_month: string
   work_days: number
   gross_pay: number
@@ -80,6 +82,7 @@ export interface CursorPage<T> {
 }
 
 export interface WorkerAttendanceDay {
+  id: string
   work_date: string
   site_id: string
   site_name: string
@@ -92,4 +95,35 @@ export interface WorkerMonthlyAttendance {
   worker_name: string
   present_days: number
   data: WorkerAttendanceDay[]
+}
+
+export interface AttendancePdfPreviewRow {
+  work_date: string
+  trade: string
+  column_index: number
+  raw_name: string
+  matched_worker_id: string | null
+  matched_worker_name: string | null
+  is_new: boolean
+  has_duplicate_name: boolean
+  site_mismatch: boolean
+  stored_trade: string | null
+  trade_mismatch: boolean
+}
+
+export interface AttendancePdfRemovedEntry {
+  work_date: string
+  worker_id: string
+  worker_name: string
+}
+
+export interface AttendancePdfSkippedPage {
+  page_number: number
+  reason: string
+}
+
+export interface AttendancePdfPreviewResponse {
+  rows: AttendancePdfPreviewRow[]
+  to_be_removed: AttendancePdfRemovedEntry[]
+  skipped_pages: AttendancePdfSkippedPage[]
 }
